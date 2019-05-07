@@ -9,10 +9,7 @@ public class JDepPDriver {
 
 	public static void main(String[] args) throws IOException {
 		ExecutorService executor = Executors.newFixedThreadPool(3);
-
-		ProcessBuilder builder = new ProcessBuilder("", "");
-
-
+		ProcessBuilder builder = new ProcessBuilder("/bin/sh", "-c", "mecab | jdepp");
 		Process process = builder.start();
 		Future<?> f = executor.submit(new StandardOutputReader(process));
 		if (f.isDone()) {
