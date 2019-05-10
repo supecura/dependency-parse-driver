@@ -12,7 +12,8 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public abstract class JdepPDialoguer implements Closeable {
 	private static ExecutorService dialogueService = Executors.newFixedThreadPool(100);
@@ -22,6 +23,17 @@ public abstract class JdepPDialoguer implements Closeable {
 	private BufferedReader reader;
 
 	public JdepPDialoguer() throws IOException {
+		startJdepP();
+	}
+
+	@Override
+	public void close() throws IOException {
+		stopJdepP();
+		dialogueService.shutdown();
+		standardOutputConsumeService.shutdown();
+	}
+
+	public synchronized void startJdepP() throws IOException {
 		ProcessBuilder builder = new ProcessBuilder("/bin/sh", "-c", "mecab | jdepp");
 		this.process = builder.start();
 		InputStreamReader isr = new InputStreamReader(process.getInputStream());
@@ -30,25 +42,45 @@ public abstract class JdepPDialoguer implements Closeable {
 		this.writer = new BufferedWriter(new OutputStreamWriter(os));
 	}
 
-	@Override
-	public void close() throws IOException {
-		writer.close();
-		reader.close();
-		this.process.destroy();
-		dialogueService.shutdown();
-		standardOutputConsumeService.shutdown();
+	public synchronized void stopJdepP() throws IOException {
+		this.writer.close();
+		this.reader.close();
+		this.process.destroyForcibly();
+	}
+
+	public synchronized void restartJdepP() throws IOException {
+		System.out.println("restart");
+		stopJdepP();
+		startJdepP();
 	}
 
 	public Future<List<String>> exec(String sentence) throws Exception {
+		AtomicBoolean restartFlag = new AtomicBoolean(true);
 		return dialogueService.<List<String>> submit(() -> {
-			Future<List<String>> f = getDependencyResult();
-			sendSentence(sentence);
-			List<String> list = f.get();
+			List<String> list = new ArrayList<>();
+			try {
+				Future<List<String>> f;
+				synchronized (JdepPDialoguer.this) {
+					f = recieveResult();
+					sendSentence(sentence);
+					restartFlag.set(true);
+				}
+				list = f.get(1, TimeUnit.SECONDS);
+				return list;
+			} catch (Exception e) {
+				synchronized (JdepPDialoguer.this) {
+					if (restartFlag.get()) {
+						restartFlag.set(false);
+						restartJdepP();
+					}
+				}
+			}
 			return list;
 		});
+
 	}
 
-	public Future<List<String>> getDependencyResult() throws IOException, InterruptedException {
+	public Future<List<String>> recieveResult() throws IOException, InterruptedException {
 		Thread.currentThread().setName("DependencyResult");
 		Future<List<String>> f = standardOutputConsumeService.<List<String>> submit(() -> {
 			List<String> list = new ArrayList<>();
@@ -63,9 +95,9 @@ public abstract class JdepPDialoguer implements Closeable {
 		return f;
 	}
 
-	public void sendSentence(String standardInput) throws IOException {
-		System.out.println("標準入力に" + standardInput + "を書き込みます。");
-		writer.write(standardInput);
+	public void sendSentence(String sentence) throws IOException {
+		System.out.println("標準入力に" + sentence + "を書き込みます。");
+		writer.write(sentence);
 		writer.newLine();
 		writer.flush();
 	}
