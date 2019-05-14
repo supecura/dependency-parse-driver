@@ -19,19 +19,21 @@ import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
-public abstract class JdepPDialoguer implements Closeable {
+public abstract class JdepPInteractor implements Closeable {
 	private static ExecutorService dialogueService = Executors.newFixedThreadPool(100);
 	private static ExecutorService standardOutputConsumeService = Executors.newSingleThreadExecutor();
 	private static BlockingQueue<Process> queue = new ArrayBlockingQueue<Process>(1);
 
-	public JdepPDialoguer() throws IOException {
+	public JdepPInteractor() throws IOException {
 		startJdepP();
 	}
 
 	@Override
 	public void close() throws IOException {
-		Process p = JdepPDialoguer.queue.poll();
-		p.destroyForcibly();
+		Process p = queue.poll();
+		if (p != null) {
+			p.destroyForcibly();
+		}
 		dialogueService.shutdown();
 		standardOutputConsumeService.shutdown();
 	}
@@ -45,7 +47,7 @@ public abstract class JdepPDialoguer implements Closeable {
 	}
 
 	public void restartJdepP(Process p) throws IOException, InterruptedException {
-		log.info("JdepPを再起動");
+		log.info("JdepPを再起動開始");
 		p.destroyForcibly();
 		log.info("JdepPを停止完了");
 		startJdepP();
@@ -54,20 +56,11 @@ public abstract class JdepPDialoguer implements Closeable {
 
 	public Future<List<String>> exec(String sentence) throws Exception {
 		Future<List<String>> future = dialogueService.<List<String>> submit(() -> {
-			List<String> list = new ArrayList<>();
-			Process p = JdepPDialoguer.queue.take();
-			Future<List<String>> f = null;
-			try {
-				f = recieveResult(p);
-				sendSentence(p, sentence);
-			} catch (Exception e) {
-				restartJdepP(p);
-				throw e;
-			}
+			Process p = queue.take();
+			Future<List<String>> f = interact(p, sentence);
 			queue.add(p);
 			try {
-				list = f.get(1, TimeUnit.SECONDS);
-				return list;
+				return f.get(1, TimeUnit.SECONDS);
 			} catch (Exception e) {
 				Process restartProcess = queue.poll();
 				if (p == restartProcess) {
@@ -75,6 +68,7 @@ public abstract class JdepPDialoguer implements Closeable {
 				} else {
 					log.info("別プロセスが再実行を行っているので、restartをスルーします。");
 					if (restartProcess != null) {
+						//Queueから取り出したProcessを返却
 						queue.add(restartProcess);
 					}
 				}
@@ -84,7 +78,18 @@ public abstract class JdepPDialoguer implements Closeable {
 		return future;
 	}
 
-	public Future<List<String>> recieveResult(Process process) throws IOException, InterruptedException {
+	public Future<List<String>> interact(Process p, String sentence) throws IOException, InterruptedException {
+		try {
+			Future<List<String>> f = submitReciever(p);
+			sendSentence(p, sentence);
+			return f;
+		} catch (Exception e) {
+			restartJdepP(p);
+			throw e;
+		}
+	};
+
+	public Future<List<String>> submitReciever(Process process) throws IOException, InterruptedException {
 		InputStreamReader isr = new InputStreamReader(process.getInputStream());
 		BufferedReader reader = new BufferedReader(isr);
 		Future<List<String>> f = standardOutputConsumeService.<List<String>> submit(() -> {

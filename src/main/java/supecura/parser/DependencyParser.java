@@ -9,10 +9,10 @@ import java.util.List;
 import java.util.concurrent.Future;
 
 import lombok.extern.slf4j.Slf4j;
-import supecura.function.JdepPDialoguer;
+import supecura.function.JdepPInteractor;
 
 @Slf4j
-public class DependencyParser extends JdepPDialoguer {
+public class DependencyParser extends JdepPInteractor {
 
 	public DependencyParser() throws IOException {
 		super();
@@ -23,8 +23,13 @@ public class DependencyParser extends JdepPDialoguer {
 		List<Future<List<String>>> list = new ArrayList<>();
 		int ok = 0;
 		int ng = 0;
+		if (args.length == 0) {
+			log.warn("解析対象のファイルパスを引数に入れてください。");
+			System.exit(-1);
+		}
+
 		try (DependencyParser parser = new DependencyParser();
-				BufferedReader br = Files.newBufferedReader(Paths.get("./testMessage"));) {
+				BufferedReader br = Files.newBufferedReader(Paths.get(args[0]));) {
 			for (String str = br.readLine(); str != null; str = br.readLine()) {
 				list.add(parser.exec(str));
 			}
