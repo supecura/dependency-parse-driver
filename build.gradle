@@ -5,7 +5,7 @@ apply plugin: 'application'
 
 sourceCompatibility = targetCompatibility = 1.8
 version = '0.0.1'
-mainClassName = 'supecura.driver.JDepPDriver'
+mainClassName = 'supecura.driver.DependencyParser'
 
 configurations {
 	provided
