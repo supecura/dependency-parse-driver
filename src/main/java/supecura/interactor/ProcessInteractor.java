@@ -1,4 +1,4 @@
-package supecura.function;
+package supecura.interactor;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -82,11 +82,11 @@ public abstract class ProcessInteractor implements Closeable {
 	}
 
 	public void restartProcess(ProcessWrapper p) throws IOException, InterruptedException {
-		log.info("JdepPをrestart");
+		log.info("Processをrestart");
 		p.close();
-		log.info("JdepPをstop");
+		log.info("Processをstop");
 		startProcess();
-		log.info("JdepPをrestart-ed");
+		log.info("Processをrestart-ed");
 	}
 
 	public void startProcess(String... command) throws IOException {

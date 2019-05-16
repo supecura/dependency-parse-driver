@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.concurrent.Future;
 
 import lombok.extern.slf4j.Slf4j;
-import supecura.function.JdepPInteractor;
+import supecura.interactor.JdepPInteractor;
 
 @Slf4j
 public class DependencyParser extends JdepPInteractor {
