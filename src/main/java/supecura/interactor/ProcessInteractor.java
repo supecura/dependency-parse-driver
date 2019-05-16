@@ -21,6 +21,7 @@ public abstract class ProcessInteractor implements Closeable {
 	private static ExecutorService dialogueService = Executors.newFixedThreadPool(100);
 	private static ExecutorService standardOutputConsumeService = Executors.newSingleThreadExecutor();
 	private static BlockingQueue<ProcessWrapper> queue = new ArrayBlockingQueue<ProcessWrapper>(1);
+	private final int processTimeoutSeconds = 1;
 
 	public Future<List<String>> exec(String sentence) throws Exception {
 		Future<List<String>> future = dialogueService.<List<String>> submit(() -> {
@@ -28,7 +29,7 @@ public abstract class ProcessInteractor implements Closeable {
 			Future<List<String>> f = interact(p, sentence);
 			queue.add(p);
 			try {
-				return f.get(30, TimeUnit.SECONDS);
+				return f.get(processTimeoutSeconds, TimeUnit.SECONDS);
 			} catch (Exception e) {
 				log.error("異常発生:{}", sentence, e);
 				ProcessWrapper restartProcess = queue.poll();
