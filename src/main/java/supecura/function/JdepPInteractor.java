@@ -4,9 +4,6 @@ import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.Closeable;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.io.OutputStreamWriter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -17,12 +14,13 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import lombok.extern.slf4j.Slf4j;
+import supecura.wrapper.ProcessWrapper;
 
 @Slf4j
 public abstract class JdepPInteractor implements Closeable {
-	private static ExecutorService dialogueService = Executors.newFixedThreadPool(100);
+	private static ExecutorService dialogueService = Executors.newFixedThreadPool(3);
 	private static ExecutorService standardOutputConsumeService = Executors.newSingleThreadExecutor();
-	private static BlockingQueue<Process> queue = new ArrayBlockingQueue<Process>(1);
+	private static BlockingQueue<ProcessWrapper> queue = new ArrayBlockingQueue<ProcessWrapper>(1);
 
 	public JdepPInteractor() throws IOException {
 		startJdepP();
@@ -30,9 +28,9 @@ public abstract class JdepPInteractor implements Closeable {
 
 	@Override
 	public void close() throws IOException {
-		Process p = queue.poll();
+		ProcessWrapper p = queue.poll();
 		if (p != null) {
-			p.destroyForcibly();
+			p.close();
 		}
 		dialogueService.shutdown();
 		standardOutputConsumeService.shutdown();
@@ -40,15 +38,16 @@ public abstract class JdepPInteractor implements Closeable {
 
 	public void startJdepP() throws IOException {
 		if (queue.isEmpty()) {
-			ProcessBuilder builder = new ProcessBuilder("/bin/sh", "-c", "mecab | jdepp");
+//			ProcessBuilder builder = new ProcessBuilder("/bin/sh", "-c", "mecab | jdepp");
+			ProcessBuilder builder = new ProcessBuilder("/bin/sh", "-c", "cabocha");
 			Process process = builder.start();
-			queue.add(process);
+			queue.add(new ProcessWrapper(process));
 		}
 	}
 
-	public void restartJdepP(Process p) throws IOException, InterruptedException {
+	public void restartJdepP(ProcessWrapper p) throws IOException, InterruptedException {
 		log.info("JdepPを再起動開始");
-		p.destroyForcibly();
+		p.close();
 		log.info("JdepPを停止完了");
 		startJdepP();
 		log.info("JdepPを再実行完了");
@@ -56,13 +55,14 @@ public abstract class JdepPInteractor implements Closeable {
 
 	public Future<List<String>> exec(String sentence) throws Exception {
 		Future<List<String>> future = dialogueService.<List<String>> submit(() -> {
-			Process p = queue.take();
+			ProcessWrapper p = queue.take();
 			Future<List<String>> f = interact(p, sentence);
 			queue.add(p);
 			try {
-				return f.get(1, TimeUnit.SECONDS);
+				return f.get(30, TimeUnit.SECONDS);
 			} catch (Exception e) {
-				Process restartProcess = queue.poll();
+				log.error("異常発生:{}", sentence, e);
+				ProcessWrapper restartProcess = queue.poll();
 				if (p == restartProcess) {
 					restartJdepP(restartProcess);
 				} else {
@@ -78,7 +78,7 @@ public abstract class JdepPInteractor implements Closeable {
 		return future;
 	}
 
-	public Future<List<String>> interact(Process p, String sentence) throws IOException, InterruptedException {
+	public Future<List<String>> interact(ProcessWrapper p, String sentence) throws IOException, InterruptedException {
 		try {
 			Future<List<String>> f = submitReciever(p);
 			sendSentence(p, sentence);
@@ -89,9 +89,8 @@ public abstract class JdepPInteractor implements Closeable {
 		}
 	};
 
-	public Future<List<String>> submitReciever(Process process) throws IOException, InterruptedException {
-		InputStreamReader isr = new InputStreamReader(process.getInputStream());
-		BufferedReader reader = new BufferedReader(isr);
+	public Future<List<String>> submitReciever(ProcessWrapper process) throws IOException, InterruptedException {
+		BufferedReader reader = process.getReader();
 		Future<List<String>> f = standardOutputConsumeService.<List<String>> submit(() -> {
 			List<String> list = new ArrayList<>();
 			for (String str = reader.readLine(); str != null; str = reader.readLine()) {
@@ -105,9 +104,8 @@ public abstract class JdepPInteractor implements Closeable {
 		return f;
 	}
 
-	public void sendSentence(Process process, String sentence) throws IOException {
-		OutputStream os = process.getOutputStream();
-		BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(os));
+	public void sendSentence(ProcessWrapper process, String sentence) throws IOException {
+		BufferedWriter writer = process.getWriter();
 		log.info("標準入力に{}を書き込みます。", sentence);
 		writer.write(sentence);
 		writer.newLine();
