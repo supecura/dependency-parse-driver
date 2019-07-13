@@ -36,16 +36,5 @@ compileJava { options.encoding = 'UTF-8' }
 
 test { testLogging.showStandardStreams = true }
 
-eclipse {
-	project.name = 'jdepp-driver'
-
-	classpath {
-		plusConfigurations += [configurations.provided]
-	}
-	jdt {
-		sourceCompatibility = 1.8
-		targetCompatibility = 1.8
-	}
-}
 
 
